@@ -72,7 +72,8 @@ def clear_folder(folder_path):
             print(f"[!] Failed to clear folder {folder_path}: {e}")
 
 def main():
-    subprocess.run("color 0A", shell=True)  # Set green color text
+    # Set green color text in the console
+    subprocess.run("color 0A", shell=True)
 
     if not is_admin():
         print("[!] Not running as admin, trying to elevate...")
