@@ -1,0 +1,80 @@
+@echo off
+cls
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [!] Requesting admin privileges...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
+)
+
+color 0A
+echo [*] Running as Administrator...
+timeout /t 1 >nul
+
+echo [*] Killing background processes to free RAM/GPU...
+set "PList=OneDrive.exe YourPhone.exe XboxGameBar.exe Steam.exe RuntimeBroker.exe SearchIndexer.exe Cortana.exe Teams.exe GameBarPresenceWriter.exe ShellExperienceHost.exe Widgets.exe smartscreen.exe"
+for %%P in (%PList%) do taskkill /f /im "%%P" >nul 2>&1
+
+echo [*] Disabling unnecessary services...
+set "SList=SysMain DiagTrack WSearch Fax RetailDemo WerSvc PcaSvc BITS TrkWks XblGameSave XblAuthManager WbioSrvc"
+for %%S in (%SList%) do (
+    sc stop "%%S" >nul 2>&1
+    sc config "%%S" start= disabled >nul 2>&1
+)
+
+echo [*] Removing bloatware apps...
+set "AppxList=xbox bing YourPhone officehub people solitaire zune"
+for %%A in (%AppxList%) do powershell -command "Get-AppxPackage *%%A* | Remove-AppxPackage" >nul 2>&1
+
+echo [*] Disabling telemetry and preview features...
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds" /v AllowBuildPreview /t REG_DWORD /d 0 /f >nul
+
+echo [*] Attempting to clear standby RAM...
+if exist "%~dp0empty.exe" (
+    "%~dp0empty.exe" standbylist
+) else (
+    echo [!] 'empty.exe' not found in script directory.
+)
+
+echo [*] Applying GPU and system performance tweaks...
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v HwSchMode /t REG_DWORD /d 2 /f >nul
+reg add "HKLM\Software\Microsoft\Windows\Dwm" /v OverlayTestMode /t REG_DWORD /d 5 /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f >nul
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" /v PowerThrottlingOff /t REG_DWORD /d 1 /f >nul
+
+echo [*] Enabling Ultimate Performance power plan...
+powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 >nul
+powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 >nul
+
+echo [*] Optimizing network TCP/IP stack...
+netsh interface tcp set heuristics disabled >nul
+netsh interface tcp set global autotuninglevel=disabled >nul
+netsh interface tcp set global rss=enabled >nul
+netsh interface tcp set global dca=enabled >nul
+netsh interface tcp set global chimney=enabled >nul
+netsh int ip reset >nul
+ipconfig /flushdns >nul
+netsh winsock reset >nul
+
+echo [*] Adjusting input lag & keyboard response...
+reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v AutoRepeatDelay /t REG_SZ /d 200 /f >nul
+reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v AutoRepeatRate /t REG_SZ /d 10 /f >nul
+reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v BounceTime /t REG_SZ /d 0 /f >nul
+reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v Flags /t REG_SZ /d 0 /f >nul
+
+echo [*] Disabling mouse filtering...
+reg add "HKCU\Control Panel\Mouse" /v MouseFilterThreshold /t REG_SZ /d 0 /f >nul
+reg add "HKCU\Control Panel\Mouse" /v MouseSpeed /t REG_SZ /d 0 /f >nul
+reg add "HKCU\Control Panel\Mouse" /v MouseThreshold1 /t REG_SZ /d 0 /f >nul
+reg add "HKCU\Control Panel\Mouse" /v MouseThreshold2 /t REG_SZ /d 0 /f >nul
+
+echo [*] Cleaning TEMP and Prefetch directories...
+del /f /s /q "%temp%\*" >nul 2>&1
+del /f /s /q "C:\Windows\Prefetch\*" >nul 2>&1
+
+echo.
+echo [✅] OPTIMIZATION COMPLETE.
+echo [!] Please restart your PC to finalize all changes.
+pause
+goto menu
