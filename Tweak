@@ -1,80 +1,159 @@
-@echo off
-cls
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [!] Requesting admin privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
-    exit /b
-)
+import subprocess
+import sys
+import os
+import ctypes
+import time
+import winreg
 
-color 0A
-echo [*] Running as Administrator...
-timeout /t 1 >nul
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
-echo [*] Killing background processes to free RAM/GPU...
-set "PList=OneDrive.exe YourPhone.exe XboxGameBar.exe Steam.exe RuntimeBroker.exe SearchIndexer.exe Cortana.exe Teams.exe GameBarPresenceWriter.exe ShellExperienceHost.exe Widgets.exe smartscreen.exe"
-for %%P in (%PList%) do taskkill /f /im "%%P" >nul 2>&1
+def run_cmd(cmd, silent=True):
+    if silent:
+        return subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        return subprocess.run(cmd, shell=True)
 
-echo [*] Disabling unnecessary services...
-set "SList=SysMain DiagTrack WSearch Fax RetailDemo WerSvc PcaSvc BITS TrkWks XblGameSave XblAuthManager WbioSrvc"
-for %%S in (%SList%) do (
-    sc stop "%%S" >nul 2>&1
-    sc config "%%S" start= disabled >nul 2>&1
-)
+def kill_processes(process_list):
+    for proc in process_list:
+        run_cmd(f'taskkill /f /im {proc}')
 
-echo [*] Removing bloatware apps...
-set "AppxList=xbox bing YourPhone officehub people solitaire zune"
-for %%A in (%AppxList%) do powershell -command "Get-AppxPackage *%%A* | Remove-AppxPackage" >nul 2>&1
+def stop_disable_services(service_list):
+    for svc in service_list:
+        run_cmd(f'sc stop {svc}')
+        run_cmd(f'sc config {svc} start= disabled')
 
-echo [*] Disabling telemetry and preview features...
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f >nul
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds" /v AllowBuildPreview /t REG_DWORD /d 0 /f >nul
+def remove_bloatware_apps(app_keywords):
+    for keyword in app_keywords:
+        # Using PowerShell to remove AppxPackages matching the keyword
+        cmd = f'powershell -Command "Get-AppxPackage *{keyword}* | Remove-AppxPackage"'
+        run_cmd(cmd)
 
-echo [*] Attempting to clear standby RAM...
-if exist "%~dp0empty.exe" (
-    "%~dp0empty.exe" standbylist
-) else (
-    echo [!] 'empty.exe' not found in script directory.
-)
+def set_registry_value(root, path, name, value, value_type):
+    try:
+        key = winreg.CreateKey(root, path)
+        if value_type == 'DWORD':
+            winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
+        elif value_type == 'SZ':
+            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, str(value))
+        winreg.CloseKey(key)
+    except Exception as e:
+        print(f"[!] Failed to set registry value {path}\\{name}: {e}")
 
-echo [*] Applying GPU and system performance tweaks...
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v HwSchMode /t REG_DWORD /d 2 /f >nul
-reg add "HKLM\Software\Microsoft\Windows\Dwm" /v OverlayTestMode /t REG_DWORD /d 5 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" /v PowerThrottlingOff /t REG_DWORD /d 1 /f >nul
+def main():
+    if not is_admin():
+        print("[!] ERROR: Please run this script as Administrator.")
+        input("Press Enter to exit...")
+        sys.exit(1)
 
-echo [*] Enabling Ultimate Performance power plan...
-powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 >nul
-powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 >nul
+    print("[*] Running as Admin is confirmed.")
+    time.sleep(1)
 
-echo [*] Optimizing network TCP/IP stack...
-netsh interface tcp set heuristics disabled >nul
-netsh interface tcp set global autotuninglevel=disabled >nul
-netsh interface tcp set global rss=enabled >nul
-netsh interface tcp set global dca=enabled >nul
-netsh interface tcp set global chimney=enabled >nul
-netsh int ip reset >nul
-ipconfig /flushdns >nul
-netsh winsock reset >nul
+    print("[*] Killing known background RAM/GPU hogs...")
+    kill_processes([
+        "OneDrive.exe",
+        "YourPhone.exe",
+        "XboxGameBar.exe",
+        "Steam.exe",
+        "RuntimeBroker.exe",
+        "SearchIndexer.exe",
+        "Cortana.exe",
+        "Teams.exe",
+        "GameBarPresenceWriter.exe",
+        "ShellExperienceHost.exe",
+        "Widgets.exe",
+        "smartscreen.exe"
+    ])
 
-echo [*] Adjusting input lag & keyboard response...
-reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v AutoRepeatDelay /t REG_SZ /d 200 /f >nul
-reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v AutoRepeatRate /t REG_SZ /d 10 /f >nul
-reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v BounceTime /t REG_SZ /d 0 /f >nul
-reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v Flags /t REG_SZ /d 0 /f >nul
+    print("[*] Disabling background services...")
+    stop_disable_services([
+        "SysMain",
+        "DiagTrack",
+        "WSearch",
+        "Fax",
+        "RetailDemo",
+        "WerSvc",
+        "PcaSvc",
+        "BITS",
+        "TrkWks",
+        "XblGameSave",
+        "XblAuthManager",
+        "WbioSrvc"
+    ])
 
-echo [*] Disabling mouse filtering...
-reg add "HKCU\Control Panel\Mouse" /v MouseFilterThreshold /t REG_SZ /d 0 /f >nul
-reg add "HKCU\Control Panel\Mouse" /v MouseSpeed /t REG_SZ /d 0 /f >nul
-reg add "HKCU\Control Panel\Mouse" /v MouseThreshold1 /t REG_SZ /d 0 /f >nul
-reg add "HKCU\Control Panel\Mouse" /v MouseThreshold2 /t REG_SZ /d 0 /f >nul
+    print("[*] Removing bloatware apps...")
+    remove_bloatware_apps([
+        "xbox",
+        "bing",
+        "YourPhone",
+        "officehub",
+        "people",
+        "solitaire",
+        "zune"
+    ])
 
-echo [*] Cleaning TEMP and Prefetch directories...
-del /f /s /q "%temp%\*" >nul 2>&1
-del /f /s /q "C:\Windows\Prefetch\*" >nul 2>&1
+    print("[*] Disabling telemetry...")
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\DataCollection", "AllowTelemetry", 0, 'DWORD')
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds", "AllowBuildPreview", 0, 'DWORD')
 
-echo.
-echo [✅] OPTIMIZATION COMPLETE.
-echo [!] Please restart your PC to finalize all changes.
-pause
-goto menu
+    print("[*] Clearing standby RAM (empty.exe)...")
+    empty_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "empty.exe")
+    if os.path.isfile(empty_path):
+        run_cmd(f'"{empty_path}" standbylist')
+    else:
+        print("[!] empty.exe not found! Please place it in the same folder as this script.")
+
+    print("[*] Enabling Hardware-Accelerated GPU Scheduling...")
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "HwSchMode", 2, 'DWORD')
+
+    print("[*] Disabling MPO (Multi-Plane Overlay)...")
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\Dwm", "OverlayTestMode", 5, 'DWORD')
+
+    print("[*] Setting High GPU Priority...")
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games", "GPU Priority", 8, 'DWORD')
+
+    print("[*] Disabling GPU power throttling...")
+    set_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling", "PowerThrottlingOff", 1, 'DWORD')
+
+    print("[*] Setting Ultimate Performance mode...")
+    run_cmd('powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61')
+    run_cmd('powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61')
+
+    print("[*] Applying TCP/IP tweaks...")
+    run_cmd('netsh interface tcp set heuristics disabled')
+    run_cmd('netsh interface tcp set global autotuninglevel=disabled')
+    run_cmd('netsh interface tcp set global rss=enabled')
+    run_cmd('netsh interface tcp set global dca=enabled')
+    run_cmd('netsh interface tcp set global chimney=enabled')
+    run_cmd('netsh int ip reset')
+    run_cmd('ipconfig /flushdns')
+    run_cmd('netsh winsock reset')
+
+    print("[*] Disabling Filter Keys delay and keyboard enhancements...")
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Accessibility\Keyboard Response", "AutoRepeatDelay", "200", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Accessibility\Keyboard Response", "AutoRepeatRate", "10", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Accessibility\Keyboard Response", "BounceTime", "0", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Accessibility\Keyboard Response", "Flags", "0", 'SZ')
+
+    print("[*] Reducing input lag (mouse filter off)...")
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Mouse", "MouseFilterThreshold", "0", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Mouse", "MouseSpeed", "0", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Mouse", "MouseThreshold1", "0", 'SZ')
+    set_registry_value(winreg.HKEY_CURRENT_USER, r"Control Panel\Mouse", "MouseThreshold2", "0", 'SZ')
+
+    print("[*] Clearing TEMP & Prefetch...")
+    temp_path = os.getenv("TEMP")
+    if temp_path:
+        run_cmd(f'del /f /s /q "{temp_path}\\*"')
+    run_cmd('del /f /s /q "C:\\Windows\\Prefetch\\*"')
+
+    print()
+    print("[✅] FULL OPTIMIZATION COMPLETE.")
+    print("[!] Recommended: Restart PC to finalize performance tweaks.")
+    input("Press Enter to exit...")
+
+if __name__ == "__main__":
+    main()
