@@ -1,4 +1,6 @@
 import subprocess
+
+subprocess.run("color 0A", shell=True)
 import sys
 import os
 import ctypes
